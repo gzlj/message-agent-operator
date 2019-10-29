@@ -3,15 +3,16 @@ package messageagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	messageagentv1 "github.com/gzlj/message-agent-operator/pkg/apis/messageagent/v1"
 	"github.com/gzlj/message-agent-operator/pkg/resources"
 	appsv1 "k8s.io/api/apps/v1"
-	"reflect"
-
-	messageagentv1 "github.com/gzlj/message-agent-operator/pkg/apis/messageagent/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"reflect"
+
 	//"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -109,7 +110,6 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 	reqLogger.Info("Reconciling MessageAgent")
 	var (
 		err error
-		data []byte
 	)
 	// Fetch the MessageAgent instance
 	instance := &messageagentv1.MessageAgent{}
@@ -125,70 +125,68 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, err
 	}
 
-	// Define a new Pod object
-	//pod := newPodForCR(instance)
-
-	// Set MessageAgent instance as the owner and controller
-	//if err := controllerutil.SetControllerReference(instance, pod, r.scheme); err != nil {
-	//	return reconcile.Result{}, err
-	//}
-/*
-	// Check if this Pod already exists
-	found := &corev1.Pod{}
-	err = r.client.Get(context.TODO(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		reqLogger.Info("Creating a new Pod", "Pod.Namespace", pod.Namespace, "Pod.Name", pod.Name)
-		err = r.client.Create(context.TODO(), pod)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-
-		// Pod created successfully - don't requeue
-		return reconcile.Result{}, nil
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-
-*/
 	deploy := &appsv1.Deployment{}
+	oldDeploy := &appsv1.Deployment{}
 	secret := &corev1.Secret{}
+	oldSecret := &corev1.Secret{}
 
-	//r.client.Get(context.TODO(), request.NamespacedName, deploy);
-	err = r.client.Get(context.TODO(), request.NamespacedName, secret)
+	var secretIsChanged = false
+
+	err = r.client.Get(context.TODO(), request.NamespacedName, oldSecret)
 	if err != nil && errors.IsNotFound(err) {
 		secret = resources.NewSecret(instance)
 		if err = r.client.Create(context.TODO(), secret); err != nil {
 			return reconcile.Result{}, err
 		}
+	} else if err == nil {
+		dataFromCr:= resources.GetSecretDataForCr(instance)
+		dataFromSecret := oldSecret.Data
+		if reflect.DeepEqual(dataFromCr, dataFromSecret) {
+			//return reconcile.Result{}, nil
+		} else {
+			secret = resources.NewSecret(instance)
+			secretIsChanged = true
+			if err = r.client.Update(context.TODO(), secret); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+
 	}
 
-	err = r.client.Get(context.TODO(), request.NamespacedName, deploy)
+	err = r.client.Get(context.TODO(), request.NamespacedName, oldDeploy)
 	if err == nil {
 
 		// need to update deploymen?
-		// spec annotation --- spec
-		//!reflect.DeepEqual(instance.Spec, oldInstanceSpec)
 		oldDeploymentSpec := appsv1.DeploymentSpec{}
-		json.Unmarshal([]byte(deploy.Annotations["spec"]), &oldDeploymentSpec)
-		if !reflect.DeepEqual(deploy.Spec, oldDeploymentSpec) {
+		json.Unmarshal([]byte(oldDeploy.Annotations["spec"]), &oldDeploymentSpec)
+		deploy = resources.NewDeployment(instance)
+
+		specStrFromCr := resources.GetAnnotationSpecValue(instance)
+		specStrFromDeploy := resources.GetAnnotationSpecValueFromDeploy(oldDeploy)
+		if  specStrFromCr !=  specStrFromDeploy {
 			//update deployment
-			deploy = resources.NewDeployment(instance)
-			if err = r.client.Update(context.TODO(), deploy); err != nil {
-				reqLogger.Info("Failed to create deployment when Reconciling MessageAgent: ",instance.Namespace + "/" + instance.Name)
+			oldDeploy.Spec = deploy.Spec
+			if err = r.client.Update(context.TODO(), oldDeploy); err != nil {
+				reqLogger.Info("Failed to update deployment when Reconciling MessageAgent: ",instance.Namespace + "/" + instance.Name)
 				return reconcile.Result{}, err
 			}
 			return reconcile.Result{}, nil
 		}
-		// or just delete pod of this deployment
-		replicas := deploy.Spec.Replicas
-		zero := int32(0)
-		deploy.Spec.Replicas=&zero
-		r.client.Update(context.TODO(), deploy)
-		deploy.Spec.Replicas=replicas
-		r.client.Update(context.TODO(), deploy)
+		if secretIsChanged == false {
+			return reconcile.Result{}, nil
+		}
 
+		// or just delete pod of this deployment
+		replicas := oldDeploy.Spec.Replicas
+		zero := int32(0)
+		oldDeploy.Spec.Replicas=&zero
+		r.client.Update(context.TODO(), oldDeploy)
+		oldDeploy.Spec.Replicas=replicas
+		r.client.Update(context.TODO(), oldDeploy)
+		return reconcile.Result{}, nil
 
 	} else if ! errors.IsNotFound(err){
+		fmt.Println("(lse if ! errors.IsNotFound(err)): ", err)
 		return reconcile.Result{}, err
 	}
 
@@ -198,24 +196,7 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 		reqLogger.Info("Failed to create deployment when Reconciling MessageAgent: ",instance.Namespace + "/" + instance.Name)
 		return reconcile.Result{}, err
 	}
-	/*
-	data, _ := json.Marshal(instance.Spec)
-		if instance.Annotations != nil {
-			instance.Annotations["spec"] = string(data)
-		} else {
-			instance.Annotations = map[string]string{"spec": string(data)}
-		}
-	 */
-	data, _ = json.Marshal(deploy.Spec)
-	if deploy.Annotations != nil {
-		deploy.Annotations["spec"] = string(data)
-	} else {
-		deploy.Annotations = map[string]string{"spec": string(data)}
-	}
-	if err = r.client.Update(context.TODO(), deploy); err != nil {
-		reqLogger.Info("Failed to create deployment when Reconciling MessageAgent: ",instance.Namespace + "/" + instance.Name)
-		return reconcile.Result{}, err
-	}
+
 	// Pod already exists - don't requeue
 	//reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
 	return reconcile.Result{}, nil
