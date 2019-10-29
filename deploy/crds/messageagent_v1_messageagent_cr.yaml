@@ -1,0 +1,7 @@
+apiVersion: messageagent.monitoring.ly.com/v1
+kind: MessageAgent
+metadata:
+  name: example-messageagent
+spec:
+  # Add fields here
+  size: 3

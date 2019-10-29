@@ -1,0 +1,11 @@
+kind: RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: message-agent-operator
+subjects:
+- kind: ServiceAccount
+  name: message-agent-operator
+roleRef:
+  kind: Role
+  name: message-agent-operator
+  apiGroup: rbac.authorization.k8s.io

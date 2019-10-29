@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-agent-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: message-agent-operator
+  template:
+    metadata:
+      labels:
+        name: message-agent-operator
+    spec:
+      serviceAccountName: message-agent-operator
+      containers:
+        - name: message-agent-operator
+          # Replace this with the built image name
+          image: REPLACE_IMAGE
+          command:
+          - message-agent-operator
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "message-agent-operator"
