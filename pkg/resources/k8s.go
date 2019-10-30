@@ -13,12 +13,19 @@ import (
 func NewSecret(agent *messageagentv1.MessageAgent) *corev1.Secret {
 
 
-	var channelsStr string
+	var (
+		channelsStr string
+		receiversStr string
+		bytes []byte
+	)
 	for _, ch := range agent.Spec.Channels {
 		channelsStr += ch + ","
 	}
 	channelsStr = channelsStr[0:len(channelsStr)-1]
 
+	//RECEIVERS
+	bytes, _ = json.Marshal(agent.Spec.Receivers)
+	receiversStr = string(bytes)
 
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{
@@ -28,6 +35,10 @@ func NewSecret(agent *messageagentv1.MessageAgent) *corev1.Secret {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      agent.Name,
 			Namespace: agent.Namespace,
+			Labels: map[string]string{
+				"alertmanager": "receiver",
+				"type": "message-center",
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(agent, schema.GroupVersionKind{
 					Group:   messageagentv1.SchemeGroupVersion.Group,
@@ -37,12 +48,13 @@ func NewSecret(agent *messageagentv1.MessageAgent) *corev1.Secret {
 			},
 		},
 		Data: map[string][]byte{
-			"messagCcenter": []byte(agent.Spec.MessagCcenter),
+			"messageCenter": []byte(agent.Spec.MessageCenter),
 			"clientId":      []byte(agent.Spec.ClientId),
 			"clientSecret":  []byte(agent.Spec.ClientSecret),
 			"serverPort":    []byte(agent.Spec.ServerPort),
 			"applyMsgType":  []byte(agent.Spec.ApplyMsgType),
 			"channels":      []byte(channelsStr),
+			"receivers":     []byte(receiversStr),
 		},
 		Type: "Opaque",
 	}
@@ -79,6 +91,11 @@ func NewDeployment(agent *messageagentv1.MessageAgent) *appsv1.Deployment {
 			Annotations: map[string]string{},
 			Name:      agent.Name,
 			Namespace: agent.Namespace,
+			Labels: map[string]string{
+				"alertmanager": "receiver",
+				"type": "message-center",
+				"receiver": agent.Name,
+			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(agent, schema.GroupVersionKind{
 					Group:   messageagentv1.SchemeGroupVersion.Group,
@@ -182,12 +199,12 @@ func buildContainers(agent *messageagentv1.MessageAgent) []corev1.Container {
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Env: []corev1.EnvVar{
 				{
-				Name: "MESSAGCCENTER",
+				Name: "MESSAGECENTER",
 				ValueFrom: &corev1.EnvVarSource{
 					SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{
 							Name: agent.Name},
-						Key: "messagCcenter",}},
+						Key: "messageCenter",}},
 				},
 				{
 					Name: "CLIENTSECRET",
@@ -229,6 +246,14 @@ func buildContainers(agent *messageagentv1.MessageAgent) []corev1.Container {
 								Name: agent.Name},
 							Key: "channels",}},
 				},
+				{
+					Name: "RECEIVERS",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: agent.Name},
+							Key: "receivers",}},
+				},
 
 
 			},
@@ -238,20 +263,70 @@ func buildContainers(agent *messageagentv1.MessageAgent) []corev1.Container {
 
 func GetSecretDataForCr(agent *messageagentv1.MessageAgent) map[string][]byte {
 
-	var channelsStr string
+	var (
+		channelsStr string
+		receiversStr string
+		bytes []byte
+
+	)
 	//fmt.Println("ch := range agent.Spec.Channels: ")
 	for _, ch := range agent.Spec.Channels {
 		channelsStr += ch + ","
 	}
 	channelsStr = channelsStr[0:len(channelsStr)-1]
+	bytes, _ = json.Marshal(agent.Spec.Receivers)
+	receiversStr = string(bytes)
 
 	dataMap := map[string][]byte{
-		"messagCcenter": []byte(agent.Spec.MessagCcenter),
+		"messageCenter": []byte(agent.Spec.MessageCenter),
 		"clientId":      []byte(agent.Spec.ClientId),
 		"clientSecret":  []byte(agent.Spec.ClientSecret),
 		"serverPort":    []byte(agent.Spec.ServerPort),
 		"applyMsgType":  []byte(agent.Spec.ApplyMsgType),
 		"channels":      []byte(channelsStr),
+		"receivers":     []byte(receiversStr),
 	}
 	return dataMap
+}
+
+func NewService(agent *messageagentv1.MessageAgent) *corev1.Service {
+	var (
+		port int
+		servicePort corev1.ServicePort
+		err error
+	)
+	port, err = strconv.Atoi(agent.Spec.ServerPort)
+	if err != nil {
+		port = 8080
+	}
+	servicePort = corev1.ServicePort{
+		Name: agent.Name,
+		Port: int32(port),
+	}
+
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: agent.Namespace,
+			Name: agent.Name,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(agent, schema.GroupVersionKind{
+					Group:   messageagentv1.SchemeGroupVersion.Group,
+					Version: messageagentv1.SchemeGroupVersion.Version,
+					Kind:    "MessageAgent",
+				}),
+			},
+
+		},
+		Spec: corev1.ServiceSpec{
+			Type:  corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{servicePort},
+			Selector: map[string]string{
+				"app": agent.Name,
+			},
+		},
+	}
 }

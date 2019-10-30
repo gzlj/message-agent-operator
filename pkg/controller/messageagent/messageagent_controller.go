@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"reflect"
+	"strconv"
 
 	//"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -129,6 +130,8 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 	oldDeploy := &appsv1.Deployment{}
 	secret := &corev1.Secret{}
 	oldSecret := &corev1.Secret{}
+	oldService := &corev1.Service{}
+	service := &corev1.Service{}
 
 	var secretIsChanged = false
 
@@ -145,6 +148,7 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 			//return reconcile.Result{}, nil
 		} else {
 			secret = resources.NewSecret(instance)
+			//fmt.Println("secretIsChanged = true-----------------------------")
 			secretIsChanged = true
 			if err = r.client.Update(context.TODO(), secret); err != nil {
 				return reconcile.Result{}, err
@@ -152,6 +156,26 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 		}
 
 	}
+
+	err = r.client.Get(context.TODO(), request.NamespacedName, oldService)
+	if err != nil && errors.IsNotFound(err) {
+
+		service = resources.NewService(instance)
+		if err = r.client.Create(context.TODO(), service); err != nil {
+			return reconcile.Result{}, err
+		}
+	}  else if err == nil {
+		port, _ := strconv.Atoi(instance.Spec.ServerPort)
+		if oldService.Spec.Ports[0].Port != int32(port){
+			service = resources.NewService(instance)
+			//oldService.Spec = service.Spec
+			oldService.Spec.Ports[0].Port = int32(port)
+			if err = r.client.Update(context.TODO(), oldService); err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+	}
+
 
 	err = r.client.Get(context.TODO(), request.NamespacedName, oldDeploy)
 	if err == nil {
@@ -177,6 +201,7 @@ func (r *ReconcileMessageAgent) Reconcile(request reconcile.Request) (reconcile.
 		}
 
 		// or just delete pod of this deployment
+		fmt.Println("secretIsChanged = true, just delete pod of this deployment-----------------------------")
 		replicas := oldDeploy.Spec.Replicas
 		zero := int32(0)
 		oldDeploy.Spec.Replicas=&zero

@@ -13,14 +13,14 @@ type MessageAgentSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
-	Image string `json:"image"`
-	MessagCcenter string `json:"messagCcenter"`
-	ClientId string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
-	ServerPort string `json:"serverPort"`
-	ApplyMsgType string `json:"applyMsgType"`
-	Channels []string `json:"channels"`
-	Receivers []Receiver `json:"receivers"`
+	Image         string     `json:"image"`
+	MessageCenter string     `json:"messageCenter"`
+	ClientId      string     `json:"clientId"`
+	ClientSecret  string     `json:"clientSecret"`
+	ServerPort    string     `json:"serverPort"`
+	ApplyMsgType  string     `json:"applyMsgType"`
+	Channels      []string   `json:"channels"`
+	Receivers     []Receiver `json:"receivers"`
 
 	Size      *int32                      `json:"size"`
 }
